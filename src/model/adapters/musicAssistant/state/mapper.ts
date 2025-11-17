@@ -48,7 +48,7 @@ export class MusicAssistantStateMapper implements StateMapper {
   constructor(params: MusicAssistantConfig) {
     this.zoneId = params.zoneId;
     this.zoneName = params.zoneName;
-    this.maPlayerId = params.maPlayerId;
+    this.maPlayerId = params.maPlayerId.toLowerCase();
     this.api = MusicAssistantApi.acquire(params.ip, params.port ?? 8095);
   }
 
