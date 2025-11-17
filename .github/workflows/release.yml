@@ -6,6 +6,7 @@ on:
       - main
       - beta
       - testing
+      - fork
 
 permissions:
   contents: write
@@ -13,7 +14,7 @@ permissions:
 
 jobs:
   release:
-    if: ${{ github.ref_name != 'testing' }}
+    if: ${{ github.ref_name != 'testing' && github.ref_name != 'fork' }}
     runs-on: ubuntu-latest
     env:
       TARGET_BRANCH: ${{ github.ref_name }}
@@ -94,7 +95,7 @@ jobs:
           tags: ${{ steps.tags.outputs.tags }}
 
   testing:
-    if: ${{ github.ref_name == 'testing' }}
+    if: ${{ github.ref_name == 'testing' || github.ref_name == 'fork' }}
     runs-on: ubuntu-latest
 
     steps:
@@ -136,4 +137,4 @@ jobs:
           context: .
           platforms: linux/amd64,linux/arm64
           push: true
-          tags: ghcr.io/${{ github.repository_owner }}/${{ github.event.repository.name }}:testing
+          tags: ghcr.io/${{ github.repository_owner }}/${{ github.event.repository.name }}:${{ github.ref_name }}
