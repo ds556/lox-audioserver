@@ -125,16 +125,18 @@ export class MusicAssistantStateMapper implements StateMapper {
    * - if no object_id is present, `data.player_id` must match.
    */
   private handleEvent(evt: EventMessage): void {
-    const objectId = String(evt.object_id ?? '').toLowerCase();
-    const eventType = String(evt.event ?? '').toLowerCase();
+    const targetId = this.maPlayerId.toLowerCase();
+    const objectId = String(evt.object_id ?? '').trim().toLowerCase();
+    const eventType = String(evt.event ?? '').trim().toLowerCase();
 
-    // Reject events for other players/queues
-    if (objectId && objectId !== this.maPlayerId.toLowerCase()) {
+    if (objectId && objectId !== targetId) {
       return;
     }
+
     if (!objectId) {
-      const idFromData = evt.data?.player_id ?? evt.data?.queue_id;
-      if (idFromData && String(idFromData).toLowerCase() !== this.maPlayerId.toLowerCase()) {
+      const raw = evt.data?.player_id ?? evt.data?.queue_id;
+      const dataId = raw ? String(raw).trim().toLowerCase() : '';
+      if (dataId && dataId !== targetId) {
         return;
       }
     }
@@ -171,9 +173,6 @@ export class MusicAssistantStateMapper implements StateMapper {
   private async refreshQueue(): Promise<void> {
     try {
       const items = await this.api.getQueueItems(this.maPlayerId);
-      logger.debug('!! ma-queue items!');
-      logger.debug(JSON.stringify(items));
-      logger.debug('!! ma-queue items!');
       const mappedItems = Array.isArray(items)
         ? items.map((it, i) => mapQueueItem(it, i))
         : [];
@@ -190,10 +189,6 @@ export class MusicAssistantStateMapper implements StateMapper {
         start: 0,
         totalitems: mappedItems.length,
       };
-
-      logger.debug('!! loxone-queue items!');
-      logger.debug(JSON.stringify(queue));
-      logger.debug('!! loxone-queue items!');
 
       zoneStateStore.patch(this.zoneId, { queue });
       this.log('debug', `Queue refreshed (${mappedItems.length} items)`);
@@ -217,9 +212,6 @@ export class MusicAssistantStateMapper implements StateMapper {
       const mappedMeta = mapQueueToState(this.zoneId, queueData);
 
       const items = await this.api.getQueueItems(this.maPlayerId);
-      logger.debug('!! ma-queue items!');
-      logger.debug(JSON.stringify(items));
-      logger.debug('!! ma-queue items!');
       const mappedItems = Array.isArray(items)
         ? items.map((it, i) => mapQueueItem(it, i))
         : [];
@@ -236,9 +228,6 @@ export class MusicAssistantStateMapper implements StateMapper {
         totalitems: mappedItems.length,
       };
 
-      logger.debug('!! loxone-queue items!');
-      logger.debug(JSON.stringify(queue));
-      logger.debug('!! loxone-queue items!');
       zoneStateStore.patch(this.zoneId, {
         ...(mappedMeta?.trackUpdate ?? {}),
         queue,

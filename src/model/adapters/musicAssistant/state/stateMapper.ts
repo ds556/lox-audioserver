@@ -90,7 +90,7 @@ export function mapQueueToState(
       qindex: findCurrentIndex(mappedQueue.items, cur?.queue_item_id),
       sourceName: 'Music Assistant',
       name: 'Music Assistant',
-      audiopath: buildAudiopath(media?.uri ?? '', 'track'),
+      audiopath: buildAudiopath(media?.uri, 'track'),
       audiotype: audioType,
     };
 
@@ -107,21 +107,20 @@ export function mapQueueToState(
 
 export function mapQueueItem(item: any, index: number) {
   const media = item?.media_item ?? item ?? {};
-  const audiopath = buildAudiopath(media.uri, 'track');
-  const coverurl = extractCover(media, 16);
-  const uniqueId = safeString(item?.queue_item_id) || btoa(`${audiopath}-${index}`).slice(0, 32);
+  const audiopath = buildAudiopath(media.uri, 'track', 'spotify');
+  const coverurl = extractCover(media, 128);
 
   return {
     album: ensureString(media.album ?? ''),
     artist: ensureString(mapArtists(media)),
-    audiopath: audiopath.replace(/^spotify@[^:]+:/i, 'spotify:'),
+    audiopath,
     audiotype: AudioType.Spotify,
     coverurl,
     duration: safeNumber(media.duration ?? item?.duration, { min: 0 }),
     qindex: index,
     station: '',
     title: safeString(media.title ?? media.name ?? item?.name ?? ''),
-    unique_id: uniqueId,
+    unique_id: item?.queue_item_id,
     user: 'nouser',
   };
 }
