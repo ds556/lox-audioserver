@@ -3,8 +3,9 @@ import { AudioType, RepeatMode, FileType, AudioPlaybackMode, AudioPowerState } f
 import type { ZoneState } from '@/runtime/zones/types';
 import { ensureString, mapArtists } from '../utils/mapperUtils';
 import { extractCover } from '../utils/imageUtils';
-import { Player, PlayerQueue } from '../types/musicAssistantTypes';
+import { PlayerQueue } from '../types/musicAssistantTypes';
 import { safeString, safeNumber } from '@/core/utils/media';
+import { buildAudiopath } from '@/core/loxone/mediaMapping';
 
 /**
  * Result structure returned to ZoneRuntime.
@@ -15,52 +16,42 @@ interface QueueMappingResult {
 }
 
 /* -------------------------------------------------------------------------- */
-/* Player → State mapping                                                     */
+/* Player → Track mapping                                                     */
 /* -------------------------------------------------------------------------- */
 
 export function mapPlayerToState(
   zoneId: number,
-  player: Player,
+  player: { state?: string; volume_level?: number },
 ): Partial<ZoneState> {
-  const state = safeString(player.playback_state ?? player.type).toLowerCase();
-  const isPlaying = state === 'playing';
-  const media = player.current_media;
-  const title = safeString(media?.title ?? '');
-  const artist = safeString(media?.artist ?? '');
-  const album = safeString(media?.album ?? '');
-  const coverurl = safeString(media?.image_url ?? '');
-  const duration = safeNumber(media?.duration, { min: 0 });
-  const time = safeNumber(media?.elapsed_time ?? player.elapsed_time, { min: 0 });
+  const isPlaying = safeString(player.state).toLowerCase() === 'playing';
   return {
     playerid: zoneId,
     mode: isPlaying ? AudioPlaybackMode.Play : AudioPlaybackMode.Pause,
     power: AudioPowerState.On,
     volume: safeNumber(player.volume_level, { min: 0, max: 100, round: true }),
-    title,
-    artist,
-    album,
-    coverurl,
-    duration,
-    time,
   };
 }
 
 /* -------------------------------------------------------------------------- */
 /* Queue mapping                                                              */
 /* -------------------------------------------------------------------------- */
-
 export function mapQueueToState(
   zoneId: number,
   queue: PlayerQueue,
 ): QueueMappingResult | null {
   try {
-    if (!queue?.current_item) {
+    const itemsArray = Array.isArray(queue?.items) ? queue.items : [];
+    const cur = queue.current_item ?? itemsArray[0];
+    const media = cur?.media_item ?? cur ?? {};
+
+    // ⬇️ Fallback: skip only if absolutely no media info is available
+    if (!cur && !media) {
+      logger.debug(`[mapQueueToState] No current media or queue items for zone ${zoneId}`);
       return null;
     }
-    const cur = queue.current_item;
-    const media = cur.media_item;
-    const repeat = safeString(queue.repeat_mode).toLowerCase();
 
+    const artist = mapArtists(media);
+    const repeat = safeString(queue.repeat_mode).toLowerCase();
     const repeatMode: RepeatMode =
       repeat === 'one'
         ? RepeatMode.Track
@@ -68,43 +59,39 @@ export function mapQueueToState(
           ? RepeatMode.Queue
           : RepeatMode.NoRepeat;
 
-    const shuffle = queue.shuffle_enabled ? 1 : 0;
-    const queueshuffle = queue.shuffle_enabled ? true : false;
-    const coverurl = safeString(queue.current_item.image?.path ?? '');
+    const shuffle = !!queue.shuffle_enabled;
+    const cover = extractCover(media, 265);
+    const audioType = AudioType.File;
 
-    const items = Array.isArray(queue.items)
-      ? queue.items.map((item, i) => mapQueueItem(item, i))
-      : [];
-
+    // Queue is optional but still built if present
     const mappedQueue: ZoneState['queue'] = {
       id: zoneId,
-      items,
-      shuffle: queueshuffle,
+      items: Array.isArray(itemsArray)
+        ? itemsArray.map((item, i) => mapQueueItem(item, i))
+        : [],
+      shuffle,
       start: 0,
-      totalitems: items.length,
+      totalitems: itemsArray.length,
     };
-
-    const isPlaying = queue.state === 'playing';
 
     const trackUpdate: Partial<ZoneState> = {
       playerid: zoneId,
-      mode: isPlaying ? AudioPlaybackMode.Play : AudioPlaybackMode.Pause,
-      title: safeString(media?.name ?? ''),
-      //artist: cur.media_item?.,
-      //album: ensureString(media?.album ?? cur.album ?? ''),
-      coverurl,
-      duration: safeNumber(cur.duration, { min: 0 }),
-      time: safeNumber(queue.elapsed_time, { min: 0 }),
+      title: safeString(media.name ?? cur?.name ?? ''),
+      artist,
+      album: safeString(media.album ?? ''),
+      coverurl: cover,
+      duration: safeNumber(cur?.duration ?? media.duration, { min: 0 }),
+      time: safeNumber(queue.elapsed_time ?? 0, { min: 0 }),
       plrepeat: repeatMode,
-      plshuffle: shuffle,
+      plshuffle: shuffle ? 1 : 0,
       clientState: 'on',
-      type: FileType.File,
-      qid: safeString(cur.queue_item_id),
-      qindex: findCurrentIndex(items, cur.queue_item_id),
+      type: FileType.Playlist,
+      qid: safeString(cur?.queue_item_id ?? ''),
+      qindex: findCurrentIndex(mappedQueue.items, cur?.queue_item_id),
       sourceName: 'Music Assistant',
-      //name: 'Music Assistant',
-      //audiopath: normalizeUri(media?.uri),
-      audiotype: AudioType.File,
+      name: 'Music Assistant',
+      audiopath: buildAudiopath(media?.uri, 'track'),
+      audiotype: audioType,
     };
 
     return { queue: mappedQueue, trackUpdate };
@@ -120,21 +107,21 @@ export function mapQueueToState(
 
 export function mapQueueItem(item: any, index: number) {
   const media = item?.media_item ?? item ?? {};
-  const audiopath = `spotify:track:0/${media.uri ?? ''}`;
-  const coverurl = extractCover(media, 64); // small covers for queueitems
-  const uniqueId = safeString(item?.queue_item_id) || btoa(`${audiopath}-${index}`).slice(0, 32);
+  const unique_id = item.queue_item_id;
+  const audiopath = buildAudiopath(`queue://${unique_id}`, 'track', 'spotify');
+  const coverurl = extractCover(media, 128);
 
   return {
     album: ensureString(media.album ?? ''),
     artist: ensureString(mapArtists(media)),
     audiopath,
-    audiotype: 5,
+    audiotype: AudioType.Spotify,
     coverurl,
     duration: safeNumber(media.duration ?? item?.duration, { min: 0 }),
     qindex: index,
     station: '',
     title: safeString(media.title ?? media.name ?? item?.name ?? ''),
-    unique_id: uniqueId,
+    unique_id,
     user: 'nouser',
   };
 }
